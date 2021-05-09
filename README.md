@@ -1,7 +1,7 @@
 # ovh-api-bash
-Script bash pour les commandes courantes en API OVH. 
+# Script bash pour les commandes courantes en API OVH. 
 
-# Le script est basé sur la présentation de l'API OVH en bash de Christophe Casalegno.
+Le script est basé sur la présentation de l'API OVH en bash de Christophe Casalegno.
 https://www.christophe-casalegno.com/jouons-un-peu-avec-lapi-ovhcloud-en-bash-sous-gnu-linux/
 Je n'avais pas eu l'occasion de trouver une méthode simple & rapide pour les commandes courantes sur l'API OVH.
 
