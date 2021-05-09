@@ -1,0 +1,354 @@
+SOURCESECRET="/opt/script/update-dns/secret.cfg" ##Variable contenant l'api Key
+source $SOURCESECRET ## Appel du fichier secret
+
+CONTENT_TYPE='Content-Type:application/json;charset=utf-8'
+OVH_APP="X-Ovh-Application:${APP_KEY}"
+OVH_CONSUMER="X-Ovh-Consumer:${CONSUMER_KEY}"
+JSON2TEXT="python -mjson.tool"
+DEST_FILE_JUR="/backup/backup/export-zone-juridique"
+DEST_FILE="/opt/script/update-dns/export/"
+DEST_FILE_VPS="/backup/backup/export-zone-vps"
+DEST_FILE_DNS="/opt/script/update-dns/temp"
+DATE=`date +%Y-%m-%d-%HH%M`
+DATEC=`date +%Y-%m-%d`
+
+
+MAIL_OBJECT="[AUTOMATE DSI INFRA]"
+SENDER="bchappe_ext@altarea.com"
+
+HOURS="0"
+MIN="0"
+SECONDS="0"
+
+function api_request()
+{
+
+        REQ_TYPE="$1"
+        ENDPOINT="$2"
+        DATA="$3"
+        API_URL="https://api.ovh.com/1.0"
+        TIMESTAMP=$(curl -s https://api.ovh.com/1.0/auth/time)
+        OVH_TIMESTAMP="X-Ovh-Timestamp:${TIMESTAMP}"
+        SIG_KEY="${APP_SECRET}+${CONSUMER_KEY}+${REQ_TYPE}+${API_URL}${ENDPOINT}+${DATA}+${TIMESTAMP}"
+        THE_SIG=$(echo "\$1\$$(echo -n "${SIG_KEY}" |sha1sum - | cut -d' ' -f1)")
+        OVH_SIG="X-Ovh-Signature:$THE_SIG"
+
+        curl -s -X "${REQ_TYPE}" \
+        --header "${CONTENT_TYPE}" \
+        --header "${OVH_TIMESTAMP}" \
+        --header "${OVH_APP}" \
+        --header "${OVH_SIG}" \
+        --header "${OVH_CONSUMER}" \
+        --data "${DATA}" \
+        "${API_URL}${ENDPOINT}" |$JSON2TEXT |sed 's/,//g' |grep -v '\[\|\]'
+}
+
+OPTION1="$1" ## 1er Argument - Toujours api request
+OPTION2="$2" ## 2er argument - 1er Saisie Clavier
+OPTION3="$3" ## 3er argument - 2er Saisie Clavier
+OPTION4="$4" ## 4er argument - 3er Saisie Clavier
+
+function answer()
+{
+
+        ANSWERTYPE="$1"
+
+        NOTEXIST="Sorry, this option doesn't exist. Use ./script-dns help to print help"
+
+        case "$ANSWERTYPE" in
+                notexist) echo "$NOTEXIST" ;;
+        esac
+
+}
+
+function api_check()
+{
+        echo ""
+        echo ""
+        echo "Vous utilisez le compte :"
+        echo ""
+        api_request "GET" "/auth/details"
+        api_request "GET" "/me" | grep org
+        api_request "GET" "/me" | grep name
+        api_request "GET" "/me" | grep spareEmail
+        echo ""
+        echo "##### WARNING #####"
+        echo "Check your account"
+        echo "check file $SOURCESECRET/secret.cfg for auth"
+        echo "##### WARNING #####"
+        echo ""
+
+}
+
+function domain_whois()
+{
+
+        ls -lha $DEST_FILE_JUR/
+        echo ""
+        echo "Liste nom de domaine"
+        echo "Le fichier doit etre dans $DEST_FILE_JUR/"
+        read WHOIS
+        echo "ddomain,creation,expiration,extension,proprietaire" > $DEST_FILE_JUR/export-alldom.csv
+
+                file="$DEST_FILE_JUR/$WHOIS"
+                while IFS= read line
+                do
+                        whois $line | grep Creation >> $DEST_FILE_JUR/export-alldom.csv
+                        whois $line | grep Expiration >> $DEST_FILE_JUR/export-alldom.csv
+                 done < "$file"
+}
+
+## STEP 1 - LIST DOMAIN
+
+        rm $DEST_FILE_JUR/*
+        touch $DEST_FILE_JUR/export.csv
+        echo "ddomain,creation,expiration,extension,proprietaire" > $DEST_FILE_JUR/export.csv
+        api_request "GET" "/domain/zone" > $DEST_FILE_JUR/$DATEC-JURIDIQUE.csv
+        ## SUP DES ESPACES
+        sed -i 's/"//g' $DEST_FILE_JUR/$DATEC-JURIDIQUE.csv
+        sed -i 's/ //g' $DEST_FILE_JUR/$DATEC-JURIDIQUE.csv
+
+        file="$DEST_FILE_JUR/$DATEC-JURIDIQUE.csv"
+        while IFS= read line
+        do
+                echo "$line"
+                api_request "GET" "/domain/zone/$line/serviceInfos"  >> $DEST_FILE_JUR/$line-$DATEC.csv #Requet le service infos step by step et enregitre dans $Variable
+
+                touch $DEST_FILE_JUR/$line-$DATEC-V2.csv
+                sed '/domain/!d' $DEST_FILE_JUR/$line-$DATEC.csv >> $DEST_FILE_JUR/$line-$DATEC-V2.csv #Récupère le champ domain et l'ajoute dans V2.csv
+                sed '/creation/!d' $DEST_FILE_JUR/$line-$DATEC.csv >> $DEST_FILE_JUR/$line-$DATEC-V2.csv #Récupere le champ Creation et l'ajout dans le V2.csv
+                sed '/expiration/!d' $DEST_FILE_JUR/$line-$DATEC.csv >> $DEST_FILE_JUR/$line-$DATEC-V2.csv #Récupère le champ expiration et l'ajout dans le V2.csv
+                cat $DEST_FILE_JUR/$line-$DATEC-V2.csv | grep dom | cut -d . -f2 >> $DEST_FILE_JUR/$line-$DATEC-V2.csv
+                sed -n '4p' $DEST_FILE_JUR/$line-$DATEC-V2.csv | sed -i 's/.*/",&/' $DEST_FILE_JUR/$line-$DATEC-V2.csv >> $DEST_FILE_JUR/$line-$DATEC-V2.csv
+                echo -ne "," >> $DEST_FILE_JUR/$line-$DATEC-V2.csv # Ajoute une , pour GEN CSV
+                whois $line | grep Registrant | grep Org >> $DEST_FILE_JUR/$line-$DATEC-V2.csv
+                echo -ne "," >> $DEST_FILE_JUR/$line-$DATEC-V2.csv # Ajoute une , pour GEN CSV
+                whois $line | grep Registrar: >> $DEST_FILE_JUR/$line-$DATEC-V2.csv
+
+                touch $DEST_FILE_JUR/$line-$DATEC-V3.csv
+
+                paste -s $DEST_FILE_JUR/$line-$DATEC-V2.csv >> $DEST_FILE_JUR/$line-$DATEC-V3.csv
+                sed -i 's/"//g' $DEST_FILE_JUR/$line-$DATEC-V3.csv # formatage du csv
+                sed -i 's/ //g' $DEST_FILE_JUR/$line-$DATEC-V3.csv # formatage du csv
+                cat $DEST_FILE_JUR/$line-$DATEC-V3.csv >> $DEST_FILE_JUR/export.csv
+                rm $DEST_FILE_JUR/$line-$DATEC.csv
+                rm $DEST_FILE_JUR/$line-$DATEC-V2.csv
+                rm $DEST_FILE_JUR/$line-$DATEC-V3.csv
+
+        done < "$file"
+        sed -i 's/ //g' $DEST_FILE_JUR/export.csv
+        sed -i 's/domain://g' $DEST_FILE_JUR/export.csv
+        sed -i 's/creation:/,/g' $DEST_FILE_JUR/export.csv
+        sed -i 's/expiration:/,/g' $DEST_FILE_JUR/export.csv
+        sed -i 's/,,/,/g' $DEST_FILE_JUR/export.csv
+        sed 's/.\{1\}//' $DEST_FILE_JUR/export.csv > $DEST_FILE_JUR/export2.csv
+        mv $DEST_FILE_JUR/export2.csv $DEST_FILE_JUR/export3.csv
+        sort $DEST_FILE_JUR/export3.csv > $DEST_FILE_JUR/export.csv
+        echo "" >> $DEST_FILE_JUR/export.csv
+        echo "Ci dessus la liste des nom de domaines a la date du $DATEC" >> $DEST_FILE_JUR/export.csv
+        echo -ne "Nombres de domaines : " >> $DEST_FILE_JUR/export.csv
+        wc -l $DEST_FILE_JUR/export.csv >> $DEST_FILE_JUR/export.csv
+        rm $DEST_FILE_JUR/$DATEC-JURIDIQUE.csv
+
+function domain_backup_redirect()   ## Backup des redirects mise en place ##
+{
+DEST_FILE_BACKUP_TEMP=/opt/script/update-dns/temp
+rm $DEST_FILE_BACKUP_TEMP/*
+
+
+        ## STEP 1 - LIST DOMAIN
+        api_request "GET" "/domain/zone" > $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-1.csv
+
+        ## SUP " 1 CHAR + DERNIER CHAR
+        ## SUP DES ESPACES
+        sed -i 's/"//g' $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-1.csv
+        sed -i 's/ //g'  $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-1.csv
+
+        ## STEP 2 - RECUPERATION ID SUR CHAQUE NDD
+        file="$DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-1.csv"
+        while IFS= read line
+        do
+                echo "export ID redirect - $line"
+                api_request "GET" "/domain/zone/$line/redirection"  >> $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-2-$line.csv
+                sed -i 's/ //g'  $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-2-$line.csv
+
+                        for WORD in `cat $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-2-$line.csv`
+                        do
+                        echo "Export Redirection Domaine -$line" >> $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-3-$line.csv
+                        api_request "GET" "/domain/zone/$line/redirection/$WORD" >> $DEST_FILE_BACKUP_TEMP/$DATEC-LISTE-3-$line.csv
+                        done
+
+        done < "$file"
+
+
+
+}
+
+
+
+function domain_add_zone()
+{
+
+        OUTPUT1=$(api_request "POST" "/order/cart/" '{"ovhSubsidiary": "FR"}' |grep cartId |sed 's/ //g' |sed 's/"//g' |sed 's/.\{7\}//')
+        OUTPUT2=$(api_request "POST" "/order/cart/$OUTPUT1/assign")
+        OUTPUT3=$(api_request "POST" "/order/cart/$OUTPUT1/dns" '{"duration":"P1Y","planCode": "zone","pricingMode": "default","quantity": '$((1))' }' | grep itemId |sed 's/ //g' |sed 's/"//g' |sed 's/.\{7\}//')
+        OUTPUT4=$(api_request "POST" "/order/cart/$OUTPUT1/item/$OUTPUT3/configuration" '{"label":"zone","value":"'${OPTION2}'"}' | grep id |sed 's/ //g' |sed 's/"//g' |sed 's/.\{7\}//')
+
+        OUTPUT5=$(api_request "POST" "/order/cart/$OUTPUT1/item/$OUTPUT3/configuration" '{"label": "template","value": "minimized"}')
+        RESULT=$(api_request "POST" "/order/cart/$OUTPUT1/checkout" '{"autoPayWithPreferredPaymentMethod": true,"waiveRetractationPeriod": false}' | grep -m1 description)
+
+echo $RESULT - En cours
+}
+
+function domain_reset() ## Aprés achat du NDD - Supprime l'ensemble des enregistrements
+{
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=A" > $DEST_FILE_DNS/listeid.csv #recup de les ID du domaine puis export dans listeid.csv
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=AAAA" >> $DEST_FILE_DNS/listeid.csv #recup de les ID du domaine puis export dans listeid.csv
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=CNAME" >> $DEST_FILE_DNS/listeid.csv #recup de les ID du domaine puis export dans listeid.csv
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=MX" >> $DEST_FILE_DNS/listeid.csv #recup de les ID du domaine puis export dans listeid.csv
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=SRV" >> $DEST_FILE_DNS/listeid.csv #recup de les ID du domaine puis export dans listeid.csv
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=TXT" >> $DEST_FILE_DNS/listeid.csv #recup de les ID du domaine puis export dans listeid.csv
+        sed -i 's/"//g' $DEST_FILE_DNS/listeid.csv # formatage du csv
+        sed -i 's/ //g' $DEST_FILE_DNS/listeid.csv # formatage du csv
+
+        while IFS="," read -r col1 #boucle delete des records de listeid.csv
+        do # lancement de la boucle
+                api_request "DELETE" "/domain/zone/${OPTION2}/record/$col1" #Ordre de delete
+                api_request "POST" "/domain/zone/${OPTION2}/refresh" #Ordre de refresh la zone
+        done < $DEST_FILE_DNS/listeid.csv #fin de la boucle
+        rm $DEST_FILE_DNS/listeid.csv #Delete zone
+
+        echo "Check de la zone ${OPTION2}"
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=A"
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=AAAA"
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=CNAME"
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=MX"
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=SRV"
+        api_request "GET" "/domain/zone/${OPTION2}/record?fieldType=TXT"
+        echo "Suppresion des enregistrements domaine ${OPTION2} - OK"
+
+}
+
+
+function domain_add_a()
+{
+
+        api_request "POST" "/domain/zone/${OPTION3}/record" '{"target":"'${OPTION2}'","subDomain": "'${OPTION4}'","fieldType": "A"}'
+}
+
+function domain_redirect_pitch() ## Reset la zone puis ajoute les redirections
+{
+
+        api_request "POST" "/domain/zone/${OPTION2}/redirection" '{"target":"'URL'","subDomain": "www","type": "visible"}' #redirige le www
+        api_request "POST" "/domain/zone/${OPTION2}/redirection" '{"target":"'URL'","subDomain": "*","type": "visible"}' #redirge la racine
+        api_request "POST" "/domain/zone/${OPTION2}/redirection" '{"target":"'URL'","type": "visible"'} #redirige le * racine vers url
+        api_request "POST" "/domain/zone/${OPTION2}/refresh" #Ordre de refresh la zone
+}
+
+{
+
+## STEP 1 - LIST DOMAIN
+        api_request "GET" "/domain/zone" >> $DEST_FILE$DATE-LISTE.csv
+
+        ## SUP " 1 CHAR + DERNIER CHAR
+        ## SUP DES ESPACES
+        sed -i 's/"//g' $DEST_FILE$DATE-LISTE.csv
+        sed -i 's/ //g' $DEST_FILE$DATE-LISTE.csv
+
+
+## STEP 2 - READ FILE + EXPORT
+
+        file="$DEST_FILE$DATE-LISTE.csv"
+        while IFS= read line
+        do
+                echo "export - $line"
+                api_request "GET" "/domain/zone/$line/export" |sed 's/,//g' |sed 's/\\n/\'$'\n''/g' >> $DEST_FILE$line-$DATE.csv
+
+        done < "$file"
+        echo ""
+        echo "###########################"
+        echo "Temps script - $SECONDS secondes"
+        echo "Domaines sauvegardées : $(wc -l $DEST_FILE$DATE-LISTE.csv)"
+        echo "Taille du repertoire : $(du -sh $DEST_FILE)"
+        echo "###########################"
+        echo ""
+        echo ""
+        echo -e "$MAIL_OBJECT - $DATE \nTemps script - $SECONDS secondes \nDomaines sauvegardees : $(wc -l $DEST_FILE$DATE-LISTE.csv) \nTaille du repertoire : $(du -sh $DEST_FILE) " | mail -s "$MAIL_OBJECT du $DATE" $SENDER
+}
+
+function domain_check()
+{
+
+api_request "GET" "/domain/zone/${OPTION2}/export" |sed 's/,//g' |sed 's/\\n/\'$'\n''/g'
+
+}
+
+function help()
+{
+
+HELP_TEXT='
+List of commands and options:
+-------------------------------
+./script-dns help informations about your vrack
+./script-dns check or api_check check authentification api
+
+./script-dns domain_export - export all zone from NIC
+./script-dns domain_check - check domain ./domain_check toto.fr
+./script-dns domain_add_zone - add zone avant migration ./script dns domain_add_zone NDD
+
+./script-dns vps_list - liste des VPS - Pour Nafssati
+./script-dns vps_info - liste des VPS - Detaillé
+
+./script-dns domain_reset $domaine - Supprime tout les enregistrements pour un domaine
+./domain-dns domain_redirect_racine $domaine $url - Redirige racine vers url
+./script-dns domain_redirect_www $domaine $url redirige www vers url
+./script-dns domain_redirect_del_add $domaine $url - Supprime zone DNS puis ajoute  site racine + www + * vers $url
+./script-dns domain_txt_proprio $domain - Ajoute un TXT pour definir qui est propritaire du domain
+./script-dns domain_add_zone $domain - Ajoute la zone DNS pour préparer migration
+./script-dns domain_import $domain
+
+
+./script-dns domain_pitch_achat $domain - A passer aprés achat NDD pour Pitch -
+1- La commande supprime toute la zone DNS
+2- La commande ajoute des redirection vers http://pitchpromotion.fr
+3- La commande ajoute un champ TXT Owner vers le service marketing
+4- La commande ajout le FQDN du domaine un accept flux dans Equinix
+
+./script-dns firewall_add_fqdn $ndd
+
+./script-dns api_whois - Historise le nb API
+./script-dns domain_juridique - Envoie au juridique la liste des NDD
+./script-dns domain_whois
+./script-dns domain_check
+'
+echo "$HELP_TEXT"
+}
+
+case "$OPTION1" in
+
+        domain_export)          domain_export ;;
+        export_domain)          domain_export ;;
+        domain_reset)           domain_reset ;;
+        domain_redirect_racine) domain_redirect_racine ;;
+        domain_redirect_www)    domain_redirect_www ;;
+        domain_redirect_website) domain_redirect_website ;;
+        domain_redirect_del_add) domain_redirect_del_add ;;
+        domain_pitch_achat)     domain_pitch_achat ;;
+        domain_add_a)           domain_add_a ;;
+        domain_list)            domain_list ;;
+        domain_backup_redirect) domain_backup_redirect ;;
+        domain_import)          domain_import ;;
+        firewall_add_fqdn)      firewall_add_fqdn ;;
+        firewall_add_ip)        fireall_add_ip ;;
+        domain_whois)           domain_whois ;;
+        domain_juridique)       domain_juridique ;;
+        vps_list)               vps_list ;;
+        vps_info)               vps_info ;;
+        api_check)              api_check ;;
+        check)                  api_check ;;
+        domain_del_achat)       domain_del_all_record ;;
+        domain_check)           domain_check ;;
+        domain_add_zone)        domain_add_zone ;;
+        help)                   help ;;
+        *)                      help ;;
+esac
