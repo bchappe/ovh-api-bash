@@ -5,20 +5,17 @@ CONTENT_TYPE='Content-Type:application/json;charset=utf-8'
 OVH_APP="X-Ovh-Application:${APP_KEY}"
 OVH_CONSUMER="X-Ovh-Consumer:${CONSUMER_KEY}"
 JSON2TEXT="python -mjson.tool"
-DEST_FILE_JUR="/backup/backup/export-zone-juridique"
+DEST_FILE_JUR="/backup/backup/XXXX"
 DEST_FILE="/opt/script/update-dns/export/"
-DEST_FILE_VPS="/backup/backup/export-zone-vps"
-DEST_FILE_DNS="/opt/script/update-dns/temp"
+DEST_FILE_VPS="/backup/backup/XXXX"
+DEST_FILE_DNS="/opt/script/update-dns/XXX"
 DATE=`date +%Y-%m-%d-%HH%M`
 DATEC=`date +%Y-%m-%d`
 
 
 MAIL_OBJECT="[AUTOMATE DSI INFRA]"
-SENDER="bchappe_ext@altarea.com"
+SENDER="ovh@teknow-conseil.com"
 
-HOURS="0"
-MIN="0"
-SECONDS="0"
 
 function api_request()
 {
@@ -179,9 +176,6 @@ rm $DEST_FILE_BACKUP_TEMP/*
                         done
 
         done < "$file"
-
-
-
 }
 
 
@@ -296,9 +290,6 @@ List of commands and options:
 ./script-dns domain_check - check domain ./domain_check toto.fr
 ./script-dns domain_add_zone - add zone avant migration ./script dns domain_add_zone NDD
 
-./script-dns vps_list - liste des VPS - Pour Nafssati
-./script-dns vps_info - liste des VPS - Detaillé
-
 ./script-dns domain_reset $domaine - Supprime tout les enregistrements pour un domaine
 ./domain-dns domain_redirect_racine $domaine $url - Redirige racine vers url
 ./script-dns domain_redirect_www $domaine $url redirige www vers url
@@ -307,17 +298,9 @@ List of commands and options:
 ./script-dns domain_add_zone $domain - Ajoute la zone DNS pour préparer migration
 ./script-dns domain_import $domain
 
-
-./script-dns domain_pitch_achat $domain - A passer aprés achat NDD pour Pitch -
-1- La commande supprime toute la zone DNS
-2- La commande ajoute des redirection vers http://pitchpromotion.fr
-3- La commande ajoute un champ TXT Owner vers le service marketing
-4- La commande ajout le FQDN du domaine un accept flux dans Equinix
-
 ./script-dns firewall_add_fqdn $ndd
 
 ./script-dns api_whois - Historise le nb API
-./script-dns domain_juridique - Envoie au juridique la liste des NDD
 ./script-dns domain_whois
 ./script-dns domain_check
 '
@@ -333,7 +316,6 @@ case "$OPTION1" in
         domain_redirect_www)    domain_redirect_www ;;
         domain_redirect_website) domain_redirect_website ;;
         domain_redirect_del_add) domain_redirect_del_add ;;
-        domain_pitch_achat)     domain_pitch_achat ;;
         domain_add_a)           domain_add_a ;;
         domain_list)            domain_list ;;
         domain_backup_redirect) domain_backup_redirect ;;
